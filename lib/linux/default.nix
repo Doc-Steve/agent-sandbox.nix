@@ -74,10 +74,10 @@ let
   bashWrapper = shared.bashWrapper;
   implicitPackages = [ pkgs.cacert bashWrapper ];
   pathStr = pkgs.lib.makeBinPath (allowedPackages ++ implicitPackages);
-  mkDirsStr = builtins.concatStringsSep "\n"
-    (map (dir: ''mkdir -p "${dir}"'') stateDirs);
-  mkFilesStr = builtins.concatStringsSep "\n"
-    (map (file: ''touch "${file}"'') stateFiles);
+  mkDirsStr =
+    builtins.concatStringsSep "\n" (map (dir: ''mkdir -p "${dir}"'') stateDirs);
+  mkFilesStr =
+    builtins.concatStringsSep "\n" (map (file: ''touch "${file}"'') stateFiles);
   bindDirsStr = builtins.concatStringsSep " "
     (map (dir: ''--bind "${dir}" "${dir}"'') stateDirs);
   # Adds each stateDir to the BOUND_PREFIXES shell array at runtime
@@ -86,34 +86,39 @@ let
 
   symlinkHelpers = import ./symlink-helpers.nix { pkgs = pkgs; };
 
-  symlinkResolutionBashStr = ''
-    # Complete the set of already-bound path prefixes
-    ${stateDirsBoundPrefixBashStr}
-    BOUND_PREFIXES+=("$CWD")
-    BOUND_PREFIXES+=("/etc/resolv.conf" "/etc/passwd" "/etc/ssl/certs" "/etc/static" "/etc/pki")
-    [[ -n "$REPO_ROOT" ]] && BOUND_PREFIXES+=("$REPO_ROOT")
-    [[ -n "$GIT_DIR" ]] && BOUND_PREFIXES+=("$GIT_DIR")
+  symlinkResolutionBashStr =
+    # bash
+    ''
+      # Complete the set of already-bound path prefixes
+      ${stateDirsBoundPrefixBashStr}
+      BOUND_PREFIXES+=("$CWD")
+      BOUND_PREFIXES+=("/etc/resolv.conf" "/etc/passwd" "/etc/ssl/certs" "/etc/static" "/etc/pki")
+      [[ -n "$REPO_ROOT" ]] && BOUND_PREFIXES+=("$REPO_ROOT")
+      [[ -n "$GIT_DIR" ]] && BOUND_PREFIXES+=("$GIT_DIR")
 
-    ${symlinkHelpers.isAlreadyBoundBashStr}
-    ${symlinkHelpers.addSymlinkTargetBashStr}
-    ${symlinkHelpers.followSymlinkChainBashStr}
+      ${symlinkHelpers.isAlreadyBoundBashStr}
+      ${symlinkHelpers.addSymlinkTargetBashStr}
+      ${symlinkHelpers.followSymlinkChainBashStr}
 
-    # Resolve stateFile symlinks — bind resolved targets, not the symlink paths
-    STATE_FILE_BINDS=""
-    ${builtins.concatStringsSep "\n"
-    (map symlinkHelpers.mkResolveFileBashStr stateFiles)}
+      # Resolve stateFile symlinks — bind resolved targets, not the symlink paths
+      STATE_FILE_BINDS=""
+      ${builtins.concatStringsSep "\n"
+      (map symlinkHelpers.mkResolveFileBashStr stateFiles)}
 
-    # Scan stateDirs for internal symlinks and bind their resolved targets
-    ${builtins.concatStringsSep "\n"
-    (map symlinkHelpers.mkScanDirBashStr stateDirs)}
-  '';
+      # Scan stateDirs for internal symlinks and bind their resolved targets
+      ${builtins.concatStringsSep "\n"
+      (map symlinkHelpers.mkScanDirBashStr stateDirs)}
+    '';
 
   extraEnvStr = builtins.concatStringsSep " "
     (map (name: "--setenv ${name} ${builtins.toJSON extraEnv.${name}}")
       (builtins.attrNames extraEnv));
 
   conditionalNetworkingParams = import ./networking.nix {
-    pkgs = pkgs; shared = shared; restrictNetwork = restrictNetwork; allowedDomains = allowedDomains;
+    pkgs = pkgs;
+    shared = shared;
+    restrictNetwork = restrictNetwork;
+    allowedDomains = allowedDomains;
   };
 
   # cacert and bashWrapper are always included: cacert so SSL/TLS
@@ -123,81 +128,85 @@ let
   # that the sandboxed process cannot source /etc/bashrc or /etc/profile.
   # coreutils is included for /usr/bin/env (shebang resolution) only — it is
   # not in implicitPackages so it does not leak into PATH.
-  closurePathsFile =
-    pkgs.writeClosure (allowedPackages ++ implicitPackages ++ [ pkg pkgs.coreutils ]);
+  closurePathsFile = pkgs.writeClosure
+    (allowedPackages ++ implicitPackages ++ [ pkg pkgs.coreutils ]);
 
-  gitDetectionBashStr = ''
-    GIT_BIND=""
-    REPO_BIND=""
-    if GIT_DIR=$(${pkgs.git}/bin/git rev-parse --path-format=absolute --git-common-dir 2>/dev/null); then
-      GIT_BIND="--bind $GIT_DIR $GIT_DIR"
-      REPO_ROOT=$(dirname "$GIT_DIR")
-      REPO_BIND="--ro-bind $REPO_ROOT $REPO_ROOT"
-    fi
-  '';
+  gitDetectionBashStr =
+    # bash
+    ''
+      GIT_BIND=""
+      REPO_BIND=""
+      if GIT_DIR=$(${pkgs.git}/bin/git rev-parse --path-format=absolute --git-common-dir 2>/dev/null); then
+        GIT_BIND="--bind $GIT_DIR $GIT_DIR"
+        REPO_ROOT=$(dirname "$GIT_DIR")
+        REPO_BIND="--ro-bind $REPO_ROOT $REPO_ROOT"
+      fi
+    '';
 
 in pkgs.writeTextFile {
   name = outName;
   executable = true;
   destination = "/bin/${outName}";
-  text = ''
-    #!${pkgs.bashInteractive}/bin/bash
-    CWD=$(pwd)
-    ${conditionalNetworkingParams.warnIgnoredDomainsBashStr}
-    ${mkDirsStr}
-    ${mkFilesStr}
-    ${gitDetectionBashStr}
+  text =
+    # bash
+    ''
+        #!${pkgs.bashInteractive}/bin/bash
+        CWD=$(pwd)
+        ${conditionalNetworkingParams.warnIgnoredDomainsBashStr}
+        ${mkDirsStr}
+        ${mkFilesStr}
+        ${gitDetectionBashStr}
 
-    # Build per-path ro-bind flags for the nix store closure
-    CLOSURE_BINDS=""
-    BOUND_PREFIXES=()
-    while IFS= read -r storePath; do
-      CLOSURE_BINDS="$CLOSURE_BINDS --ro-bind $storePath $storePath"
-      BOUND_PREFIXES+=("$storePath")
-    done < ${closurePathsFile}
+        # Build per-path ro-bind flags for the nix store closure
+        CLOSURE_BINDS=""
+        BOUND_PREFIXES=()
+        while IFS= read -r storePath; do
+          CLOSURE_BINDS="$CLOSURE_BINDS --ro-bind $storePath $storePath"
+          BOUND_PREFIXES+=("$storePath")
+        done < ${closurePathsFile}
 
-    ${symlinkResolutionBashStr}
-    ${conditionalNetworkingParams.proxyStartupBashStr}
-    ${conditionalNetworkingParams.bashTrapCleanupStr}
-    ${conditionalNetworkingParams.sandboxExecBashStr}${pkgs.bubblewrap}/bin/bwrap \
-      ${conditionalNetworkingParams.etcResolvBind} \
-      --tmpfs /nix/store \
-      $CLOSURE_BINDS \
-      --ro-bind /etc/passwd /etc/passwd \
-      --ro-bind-try /etc/ssl/certs /etc/ssl/certs \
-      --ro-bind-try /etc/static /etc/static \
-      --ro-bind-try /etc/pki /etc/pki \
-      --proc /proc \
-      --dev /dev \
-      --tmpfs /tmp \
-      --tmpfs "$HOME" \
-      $REPO_BIND \
-      --bind "$CWD" "$CWD" \
-      ${bindDirsStr} \
-      $STATE_FILE_BINDS \
-      $SYMLINK_PARENT_DIRS \
-      $readonlyStateFileSymlinks \
-      $readWriteStateFileSymlinks \
-      $GIT_BIND \
-      --symlink ${bashWrapper}/bin/bash /bin/sh \
-      --symlink ${pkgs.coreutils}/bin/env /usr/bin/env \
-      --unshare-all \
-      --uid "$(id -u)" \
-      --gid "$(id -g)" \
-      --share-net \
-      --die-with-parent \
-      --chdir "$CWD" \
-      --clearenv \
-      --setenv HOME "$HOME" \
-      --setenv TERM "$TERM" \
-      --setenv SHELL "${bashWrapper}/bin/bash" \
-      --setenv PATH "${pathStr}" \
-      --setenv SSL_CERT_DIR "${pkgs.cacert}/etc/ssl/certs" \
-      --setenv TMPDIR /tmp \
-      ${conditionalNetworkingParams.sslCertEnvBubblewrapStr} \
-      ${conditionalNetworkingParams.caCertBubblewrapStr} \
-      ${conditionalNetworkingParams.proxyEnvBubblewrapStr} \
-      ${extraEnvStr} \
-      ${pkg}/bin/${binName} "$@"
-  '';
+      ${symlinkResolutionBashStr}
+      ${conditionalNetworkingParams.proxyStartupBashStr}
+      ${conditionalNetworkingParams.bashTrapCleanupStr}
+      ${conditionalNetworkingParams.sandboxExecBashStr}${pkgs.bubblewrap}/bin/bwrap \
+        ${conditionalNetworkingParams.etcResolvBind} \
+        --tmpfs /nix/store \
+        $CLOSURE_BINDS \
+        --ro-bind /etc/passwd /etc/passwd \
+        --ro-bind-try /etc/ssl/certs /etc/ssl/certs \
+        --ro-bind-try /etc/static /etc/static \
+        --ro-bind-try /etc/pki /etc/pki \
+        --proc /proc \
+        --dev /dev \
+        --tmpfs /tmp \
+        --tmpfs "$HOME" \
+        $REPO_BIND \
+        --bind "$CWD" "$CWD" \
+        ${bindDirsStr} \
+        $STATE_FILE_BINDS \
+        $SYMLINK_PARENT_DIRS \
+        $readonlyStateFileSymlinks \
+        $readWriteStateFileSymlinks \
+        $GIT_BIND \
+        --symlink ${bashWrapper}/bin/bash /bin/sh \
+        --symlink ${pkgs.coreutils}/bin/env /usr/bin/env \
+        --unshare-all \
+        --uid "$(id -u)" \
+        --gid "$(id -g)" \
+        --share-net \
+        --die-with-parent \
+        --chdir "$CWD" \
+        --clearenv \
+        --setenv HOME "$HOME" \
+        --setenv TERM "$TERM" \
+        --setenv SHELL "${bashWrapper}/bin/bash" \
+        --setenv PATH "${pathStr}" \
+        --setenv SSL_CERT_DIR "${pkgs.cacert}/etc/ssl/certs" \
+        --setenv TMPDIR /tmp \
+        ${conditionalNetworkingParams.sslCertEnvBubblewrapStr} \
+        ${conditionalNetworkingParams.caCertBubblewrapStr} \
+        ${conditionalNetworkingParams.proxyEnvBubblewrapStr} \
+        ${extraEnvStr} \
+        ${pkg}/bin/${binName} "$@"
+    '';
 }

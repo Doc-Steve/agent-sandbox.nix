@@ -3,8 +3,7 @@ let
   mkAllowlistFile = shared.mkAllowlistFile;
   hasAllowedDomains = shared.hasAllowedDomains;
   mkProxyStartupBashStr = shared.mkProxyStartupBashStr;
-in
-if restrictNetwork then
+in if restrictNetwork then
   let allowlistFileStr = mkAllowlistFile allowedDomains;
   in {
     warnIgnoredDomainsBashStr = "";
@@ -19,18 +18,16 @@ if restrictNetwork then
       (allow network-bind (local ip "localhost:*"))
       (allow system-socket)
     '';
-    proxyStartupBashStr =
-      mkProxyStartupBashStr allowlistFileStr "127.0.0.1";
+    proxyStartupBashStr = mkProxyStartupBashStr allowlistFileStr "127.0.0.1";
     bashTrapCleanupStr = ''
       trap 'kill $_PROXY_PID 2>/dev/null; rm -f "$_CA_CERT_FILE" "$_COMBINED_CA_BUNDLE"; rm -rf "$SANDBOX_HOME" "$SANDBOX_PROFILE"' EXIT'';
     sandboxExecBashStr = "";
   }
 else {
-  warnIgnoredDomainsBashStr =
-    if (hasAllowedDomains allowedDomains) then ''
-      echo "WARNING: allowedDomains is set but restrictNetwork is false — domains will be ignored" >&2
-    '' else
-      "";
+  warnIgnoredDomainsBashStr = if (hasAllowedDomains allowedDomains) then ''
+    echo "WARNING: allowedDomains is set but restrictNetwork is false — domains will be ignored" >&2
+  '' else
+    "";
   proxyEnvInlineBashStr = "";
   caCertEnvInlineBashStr = ''
     SSL_CERT_FILE="${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt" NIX_SSL_CERT_FILE="${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt"'';
@@ -40,6 +37,7 @@ else {
     (allow system-socket)
   '';
   proxyStartupBashStr = "";
-  bashTrapCleanupStr = ''trap 'rm -rf "$SANDBOX_HOME" "$SANDBOX_PROFILE"' EXIT'';
+  bashTrapCleanupStr =
+    ''trap 'rm -rf "$SANDBOX_HOME" "$SANDBOX_PROFILE"' EXIT'';
   sandboxExecBashStr = "exec ";
 }

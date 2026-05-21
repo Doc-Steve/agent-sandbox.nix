@@ -15,13 +15,13 @@ let
     $IP route add "$SANDBOX_HOST_IP"/32 via 10.0.2.2 || { echo "FATAL: could not add host route" >&2; exit 1; }
     exec "$@"
   '';
-in
-if restrictNetwork then
+in if restrictNetwork then
   let allowlistFileStr = mkAllowlistFile allowedDomains;
   in {
     warnIgnoredDomainsBashStr = "";
     proxyEnvBubblewrapStr = ''
       --setenv HTTP_PROXY "http://$_HOST_IP:$_PROXY_PORT" --setenv HTTPS_PROXY "http://$_HOST_IP:$_PROXY_PORT" --setenv http_proxy "http://$_HOST_IP:$_PROXY_PORT" --setenv https_proxy "http://$_HOST_IP:$_PROXY_PORT"'';
+
     caCertBubblewrapStr = ''
       --ro-bind "$_COMBINED_CA_BUNDLE" /tmp/sandbox-ca-bundle.pem --ro-bind "$_CA_CERT_FILE" /tmp/sandbox-ca-cert.pem --setenv SSL_CERT_FILE /tmp/sandbox-ca-bundle.pem --setenv NIX_SSL_CERT_FILE /tmp/sandbox-ca-bundle.pem --setenv NODE_EXTRA_CA_CERTS /tmp/sandbox-ca-cert.pem --setenv REQUESTS_CA_BUNDLE /tmp/sandbox-ca-bundle.pem'';
     proxyStartupBashStr = ''
@@ -32,8 +32,10 @@ if restrictNetwork then
         exit 1
       fi
     '' + mkProxyStartupBashStr allowlistFileStr "$_HOST_IP";
+
     bashTrapCleanupStr = ''
       trap 'kill $_PROXY_PID 2>/dev/null; rm -f "$_CA_CERT_FILE" "$_COMBINED_CA_BUNDLE"' EXIT'';
+
     sandboxExecBashStr = ''
       SANDBOX_HOST_IP="$_HOST_IP" ${pkgs.passt}/bin/pasta -4 --config-net -a 10.0.2.1 -g 10.0.2.2 -n 255.255.255.0 -- ${routeRestrictScript} '';
     etcResolvBind =
@@ -42,18 +44,19 @@ if restrictNetwork then
       ""; # CA cert env vars are set in caCertBubblewrapStr
   }
 else {
-  warnIgnoredDomainsBashStr =
-    if (hasAllowedDomains allowedDomains) then ''
-      echo "WARNING: allowedDomains is set but restrictNetwork is false — domains will be ignored" >&2
-    '' else
-      "";
+  warnIgnoredDomainsBashStr = if (hasAllowedDomains allowedDomains) then ''
+    echo "WARNING: allowedDomains is set but restrictNetwork is false — domains will be ignored" >&2
+  '' else
+    "";
   proxyEnvBubblewrapStr = "";
   caCertBubblewrapStr = "";
   proxyStartupBashStr = "";
   bashTrapCleanupStr = "";
   sandboxExecBashStr = "exec ";
+
   etcResolvBind =
     "--ro-bind /etc/resolv.conf /etc/resolv.conf"; # Normal DNS resolution when restrictNetwork is false.
+
   sslCertEnvBubblewrapStr = ''
     --setenv SSL_CERT_FILE "${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt" --setenv NIX_SSL_CERT_FILE "${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt"'';
 }

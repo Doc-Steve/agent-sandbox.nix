@@ -166,9 +166,9 @@ let
     (allow file-read* file-write* (subpath (param "${p.name}")))
     (allow process-exec (subpath (param "${p.name}")))'') stateDirParams);
 
-  seatbeltAllowFiles = builtins.concatStringsSep "\n" (map
-    (p: ''(allow file-read* file-write* (literal (param "${p.name}")))'')
-    stateFileParams);
+  seatbeltAllowFiles = builtins.concatStringsSep "\n"
+    (map (p: ''(allow file-read* file-write* (literal (param "${p.name}")))'')
+      stateFileParams);
 
   # For the wrapper's sandbox-exec invocation — use resolved shell vars
   stateDirFlags = builtins.concatStringsSep " \\\n  "
@@ -198,17 +198,20 @@ let
   symlinkStateDirsStr = mkSymlinkHomeMappingStr stateDirParams;
   symlinkStateFilesStr = mkSymlinkHomeMappingStr stateFileParams;
 
-  mkDirsStr = builtins.concatStringsSep "\n"
-    (map (dir: ''mkdir -p "${dir}"'') stateDirs);
-  mkFilesStr = builtins.concatStringsSep "\n"
-    (map (file: ''touch "${file}"'') stateFiles);
+  mkDirsStr =
+    builtins.concatStringsSep "\n" (map (dir: ''mkdir -p "${dir}"'') stateDirs);
+  mkFilesStr =
+    builtins.concatStringsSep "\n" (map (file: ''touch "${file}"'') stateFiles);
 
   extraEnvInlineStr = builtins.concatStringsSep " \\\n        "
     (map (name: "${name}=${builtins.toJSON extraEnv.${name}}")
       (builtins.attrNames extraEnv));
 
   conditionalNetworkingParams = import ./networking.nix {
-    pkgs = pkgs; shared = shared; restrictNetwork = restrictNetwork; allowedDomains = allowedDomains;
+    pkgs = pkgs;
+    shared = shared;
+    restrictNetwork = restrictNetwork;
+    allowedDomains = allowedDomains;
   };
 
   # cacert and bashWrapper are always included: cacert so SSL/TLS
@@ -219,43 +222,49 @@ let
   closurePathsFile =
     pkgs.writeClosure (allowedPackages ++ implicitPackages ++ [ pkg ]);
 
-  gitDetectionBashStr = ''
-    if GIT_DIR=$(${pkgs.git}/bin/git rev-parse --path-format=absolute --git-common-dir 2>/dev/null); then
-        GIT_DIR_PARAM="$GIT_DIR"
-        REPO_ROOT=$(dirname "$GIT_DIR_PARAM")
-        REPO_ROOT_PARENT=$(dirname "$REPO_ROOT")
-    else
-        GIT_DIR_PARAM="/nonexistent-git-dir"
-        REPO_ROOT="/nonexistent-repo-root"
-        REPO_ROOT_PARENT="/nonexistent-repo-root"
-    fi
-  '';
+  gitDetectionBashStr =
+    # bash
+    ''
+      if GIT_DIR=$(${pkgs.git}/bin/git rev-parse --path-format=absolute --git-common-dir 2>/dev/null); then
+          GIT_DIR_PARAM="$GIT_DIR"
+          REPO_ROOT=$(dirname "$GIT_DIR_PARAM")
+          REPO_ROOT_PARENT=$(dirname "$REPO_ROOT")
+      else
+          GIT_DIR_PARAM="/nonexistent-git-dir"
+          REPO_ROOT="/nonexistent-repo-root"
+          REPO_ROOT_PARENT="/nonexistent-repo-root"
+      fi
+    '';
 
   # Walk from REPO_ROOT (or CWD if no git repo) up to REAL_HOME,
   # collecting intermediate directories that need file-read-metadata
   # for path resolution (realpathSync, lstat, etc.).
-  ancestorTraversalBashStr = ''
-    _WALK_FROM="$REPO_ROOT"
-    if [ "$_WALK_FROM" = "/nonexistent-repo-root" ]; then
-      _WALK_FROM="$CWD"
-    fi
-    ANCESTOR_DIRS=()
-    _CURRENT=$(dirname "$_WALK_FROM")
-    while [ "$_CURRENT" != "$REAL_HOME" ] && [ "$_CURRENT" != "/" ]; do
-      ANCESTOR_DIRS+=("$_CURRENT")
-      _CURRENT=$(dirname "$_CURRENT")
-    done
-  '';
+  ancestorTraversalBashStr =
+    # bash
+    ''
+      _WALK_FROM="$REPO_ROOT"
+      if [ "$_WALK_FROM" = "/nonexistent-repo-root" ]; then
+        _WALK_FROM="$CWD"
+      fi
+      ANCESTOR_DIRS=()
+      _CURRENT=$(dirname "$_WALK_FROM")
+      while [ "$_CURRENT" != "$REAL_HOME" ] && [ "$_CURRENT" != "/" ]; do
+        ANCESTOR_DIRS+=("$_CURRENT")
+        _CURRENT=$(dirname "$_CURRENT")
+      done
+    '';
 
   # Copy the static seatbelt profile to a temp file and append
   # file-read-metadata rules for each ancestor directory at runtime.
-  ancestorProfilePatchBashStr = ''
-    SANDBOX_PROFILE=$(mktemp /tmp/sandbox-profile-XXXXXX)
-    cp ${seatbeltProfile} "$SANDBOX_PROFILE"
-    for _dir in "''${ANCESTOR_DIRS[@]}"; do
-      printf '    (allow file-read-metadata (literal "%s"))\n' "$_dir" >> "$SANDBOX_PROFILE"
-    done
-  '';
+  ancestorProfilePatchBashStr =
+    # bash
+    ''
+      SANDBOX_PROFILE=$(mktemp /tmp/sandbox-profile-XXXXXX)
+      cp ${seatbeltProfile} "$SANDBOX_PROFILE"
+      for _dir in "''${ANCESTOR_DIRS[@]}"; do
+        printf '    (allow file-read-metadata (literal "%s"))\n' "$_dir" >> "$SANDBOX_PROFILE"
+      done
+    '';
   seatbeltStaticRules = import ./seatbelt-profile.nix {
     networkRulesStr = conditionalNetworkingParams.networkSeatbeltRulesStr;
     allowReadWriteExecStr = seatbeltAllowReadWriteExec;
@@ -265,86 +274,90 @@ let
   seatbeltProfile = pkgs.runCommand "${outName}-sandbox.sb" {
     closurePaths = closurePathsFile;
     staticRules = seatbeltStaticRules;
-  } ''
-    {
-      echo "$staticRules"
+  }
+  # bash
+    ''
+      {
+        echo "$staticRules"
 
-      echo ""
-      echo "    ;; Nix store — only closure of allowed packages"
+        echo ""
+        echo "    ;; Nix store — only closure of allowed packages"
 
-      while IFS= read -r storePath; do
-        echo "    (allow file-read* (subpath \"$storePath\"))"
-        echo "    (allow process-exec (subpath \"$storePath\"))"
-      done < "$closurePaths"
-    } > $out
-  '';
+        while IFS= read -r storePath; do
+          echo "    (allow file-read* (subpath \"$storePath\"))"
+          echo "    (allow process-exec (subpath \"$storePath\"))"
+        done < "$closurePaths"
+      } > $out
+    '';
 
 in pkgs.writeTextFile {
   name = outName;
   executable = true;
   destination = "/bin/${outName}";
-  text = ''
-    #!${pkgs.bashInteractive}/bin/bash
-    CWD=$(pwd)
-    ${conditionalNetworkingParams.warnIgnoredDomainsBashStr}
+  text =
+    # bash
+    ''
+      #!${pkgs.bashInteractive}/bin/bash
+      CWD=$(pwd)
+      ${conditionalNetworkingParams.warnIgnoredDomainsBashStr}
 
-    # Ensure stateDirs/stateFiles exist while HOME still points at real home
-    ${mkDirsStr}
-    ${mkFilesStr}
+      # Ensure stateDirs/stateFiles exist while HOME still points at real home
+      ${mkDirsStr}
+      ${mkFilesStr}
 
-    ${gitDetectionBashStr}
+      ${gitDetectionBashStr}
 
-    # Capture real HOME paths before redirecting
-    GIT_CONFIG_DIR="$HOME/.config/git"
+      # Capture real HOME paths before redirecting
+      GIT_CONFIG_DIR="$HOME/.config/git"
 
-    # Resolve stateDirs/stateFiles paths while $HOME still points at real home
-    ${resolveStateDirsStr}
-    ${resolveStateFilesStr}
+      # Resolve stateDirs/stateFiles paths while $HOME still points at real home
+      ${resolveStateDirsStr}
+      ${resolveStateFilesStr}
 
-    # Create an ephemeral HOME so subprocesses don't touch the real home.
-    # Lives under /tmp which is already allowed read-write in the profile.
-    REAL_HOME="$HOME"
-    SANDBOX_HOME=$(mktemp -d /private/tmp/sandbox-home.XXXXXX)
+      # Create an ephemeral HOME so subprocesses don't touch the real home.
+      # Lives under /tmp which is already allowed read-write in the profile.
+      REAL_HOME="$HOME"
+      SANDBOX_HOME=$(mktemp -d /private/tmp/sandbox-home.XXXXXX)
 
-    # Symlink state dirs/files into sandbox HOME so $HOME-relative lookups
-    # reach the real paths through the Seatbelt-allowed targets.
-    ${symlinkStateDirsStr}
-    ${symlinkStateFilesStr}
+      # Symlink state dirs/files into sandbox HOME so $HOME-relative lookups
+      # reach the real paths through the Seatbelt-allowed targets.
+      ${symlinkStateDirsStr}
+      ${symlinkStateFilesStr}
 
-    # Walk ancestor directories between REAL_HOME and REPO_ROOT (or CWD)
-    # and patch the seatbelt profile at runtime with file-read-metadata rules.
-    ${ancestorTraversalBashStr}
-    ${ancestorProfilePatchBashStr}
+      # Walk ancestor directories between REAL_HOME and REPO_ROOT (or CWD)
+      # and patch the seatbelt profile at runtime with file-read-metadata rules.
+      ${ancestorTraversalBashStr}
+      ${ancestorProfilePatchBashStr}
 
-    ${conditionalNetworkingParams.proxyStartupBashStr}
-    ${conditionalNetworkingParams.bashTrapCleanupStr}
+      ${conditionalNetworkingParams.proxyStartupBashStr}
+      ${conditionalNetworkingParams.bashTrapCleanupStr}
 
 
-    ${conditionalNetworkingParams.sandboxExecBashStr}/usr/bin/env -i \
-      HOME="$SANDBOX_HOME" \
-      TERM="$TERM" \
-      SHELL="${bashWrapper}/bin/bash" \
-      PATH="${pathStr}" \
-      SSL_CERT_DIR="${pkgs.cacert}/etc/ssl/certs" \
-      GIT_CONFIG_DIR="$GIT_CONFIG_DIR" \
-      TMPDIR=/tmp \
-      ${conditionalNetworkingParams.caCertEnvInlineBashStr} \
-      ${conditionalNetworkingParams.proxyEnvInlineBashStr} \
-      ${extraEnvInlineStr} \
-      /usr/bin/sandbox-exec \
-      -f "$SANDBOX_PROFILE" \
-      -D CWD="$CWD" \
-      -D GIT_DIR="$GIT_DIR_PARAM" \
-      -D REPO_ROOT="$REPO_ROOT" \
-      -D REPO_ROOT_PARENT="$REPO_ROOT_PARENT" \
-      -D GIT_CONFIG_DIR="$GIT_CONFIG_DIR" \
-      -D TMPDIR="/tmp" \
-      -D HOME="$SANDBOX_HOME"  \
-      -D REAL_HOME="$REAL_HOME" \
-      -D HOME_CACHE="$SANDBOX_HOME/.cache" \
-      -D HOME_LOCAL="$SANDBOX_HOME/.local" \
-      -D HOME_LOCAL_STATE="$SANDBOX_HOME/.local/state" \
-      -D HOME_LOCAL_SHARE="$SANDBOX_HOME/.local/share" ${stateDirFlags} ${stateFileFlags} \
-      ${pkg}/bin/${binName} "$@"
-  '';
+      ${conditionalNetworkingParams.sandboxExecBashStr}/usr/bin/env -i \
+        HOME="$SANDBOX_HOME" \
+        TERM="$TERM" \
+        SHELL="${bashWrapper}/bin/bash" \
+        PATH="${pathStr}" \
+        SSL_CERT_DIR="${pkgs.cacert}/etc/ssl/certs" \
+        GIT_CONFIG_DIR="$GIT_CONFIG_DIR" \
+        TMPDIR=/tmp \
+        ${conditionalNetworkingParams.caCertEnvInlineBashStr} \
+        ${conditionalNetworkingParams.proxyEnvInlineBashStr} \
+        ${extraEnvInlineStr} \
+        /usr/bin/sandbox-exec \
+        -f "$SANDBOX_PROFILE" \
+        -D CWD="$CWD" \
+        -D GIT_DIR="$GIT_DIR_PARAM" \
+        -D REPO_ROOT="$REPO_ROOT" \
+        -D REPO_ROOT_PARENT="$REPO_ROOT_PARENT" \
+        -D GIT_CONFIG_DIR="$GIT_CONFIG_DIR" \
+        -D TMPDIR="/tmp" \
+        -D HOME="$SANDBOX_HOME"  \
+        -D REAL_HOME="$REAL_HOME" \
+        -D HOME_CACHE="$SANDBOX_HOME/.cache" \
+        -D HOME_LOCAL="$SANDBOX_HOME/.local" \
+        -D HOME_LOCAL_STATE="$SANDBOX_HOME/.local/state" \
+        -D HOME_LOCAL_SHARE="$SANDBOX_HOME/.local/share" ${stateDirFlags} ${stateFileFlags} \
+        ${pkg}/bin/${binName} "$@"
+    '';
 }
