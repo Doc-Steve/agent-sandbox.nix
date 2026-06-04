@@ -100,5 +100,31 @@ expect_fail "raw TCP bypass blocked (bash /dev/tcp)" \
 expect_fail "direct IP for allowed domain blocked (--connect-to)" \
 	'curl -sf --max-time 5 --connect-to ::1.1.1.1: http://httpbin.org/get'
 
+# Test 18: host services on 127.0.0.1 other than the proxy are unreachable
+# The proxy listens on 127.0.0.1 and must stay reachable; this test covers
+# every *other* port on the loopback address. Stands in for the real threat:
+# a user running a local service (Postgres, Redis, a dev API) on 127.0.0.1.
+# Without the proxy-port pin, a sandboxed agent could connect to it directly
+# via --noproxy and bypass the proxy's domain/method filtering entirely. On
+# Darwin this is now enforced by the seatbelt rule being pinned to the proxy
+# port. On Linux the sandbox's network namespace has its own 127.0.0.1, so
+# the host's listener is already unreachable for unrelated reasons.
+HOST_SERVICE_PORT=39917
+( python3 -m http.server "$HOST_SERVICE_PORT" --bind 127.0.0.1 >/dev/null 2>&1 ) &
+_HOST_SERVICE_PID=$!
+trap 'kill "$_HOST_SERVICE_PID" 2>/dev/null || true' EXIT
+# Pre-poll from outside the sandbox so we don't mistake a not-yet-ready
+# listener for a sandbox denial (which would be a false pass).
+for _ in 1 2 3 4 5; do
+	if curl -sf --noproxy "*" --max-time 1 "http://127.0.0.1:$HOST_SERVICE_PORT" >/dev/null 2>&1; then
+		break
+	fi
+	sleep 0.2
+done
+expect_fail "host service on non-proxy 127.0.0.1 port unreachable from sandbox" \
+	"curl -sf --noproxy \"*\" --max-time 5 http://127.0.0.1:$HOST_SERVICE_PORT"
+kill "$_HOST_SERVICE_PID" 2>/dev/null || true
+trap - EXIT
+
 print_results
 exit_status
