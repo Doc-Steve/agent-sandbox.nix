@@ -73,9 +73,12 @@
        migration is complete.
 
      Temp directories:
-       /tmp, /private/tmp, $TMPDIR, and /private/var/folders (which
-       is where macOS actually puts per-user temp/cache dirs). All
-       are read-write. TMPDIR is injected as a -D parameter.
+       /tmp, /private/tmp, and $TMPDIR (injected as /tmp via -D).
+       All are read-write. The per-user /private/var/folders tree —
+       where confstr(_CS_DARWIN_USER_TEMP_DIR / _CACHE_DIR) resolves
+       to — is intentionally NOT allowed: it holds host-user secrets
+       (age keys, PATs, etc.) reachable because sandbox-exec can't
+       drop UID. Tools must respect $TMPDIR.
 
      Ephemeral HOME:
        HOME is redirected to a temp directory under /tmp (covered by

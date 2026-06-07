@@ -98,12 +98,13 @@
     (subpath "/Library/Keychains")
     (literal "/private/var/run/systemkeychaincheck.done"))
 
-  ;; Temp directories
+  ;; Temp directories. /private/var/folders (the macOS per-user temp/cache
+  ;; tree returned by confstr(_CS_DARWIN_USER_*)) is intentionally NOT
+  ;; allowed: it holds 0400/0600 user secrets reachable via the host UID.
   (allow file-read* file-write*
     (subpath "/tmp")
     (subpath "/private/tmp")
-    (subpath (param "TMPDIR"))
-    (subpath "/private/var/folders"))
+    (subpath (param "TMPDIR")))
 
   ;; Nix store — full read access so symlinks into the store (e.g.
   ;; home-manager-managed config files) are followable. Execution is
