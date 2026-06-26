@@ -123,7 +123,7 @@ If you want to keep the original command name as the alias, change the `outName`
 | `allowNix` | no | If `true`, expose the host's `nix-daemon` socket and the full Nix store so the agent can run `nix build`, `nix run`, `nix develop`, etc. `pkgs.nix` is added to PATH automatically. Defaults to `false`. See [Using Nix inside the sandbox](#using-nix-inside-the-sandbox). |
 | `env` | no | Additional environment variables as an attrset |
 | `allowedDomains` | no | Limits which domains the sandbox can reach. Leave unset for open internet. Accepts a list of domains (all methods allowed), or an attrset mapping each domain to `"*"` or a list of HTTP methods. `[ ]` blocks all internet access. |
-| `localNetworkAccess` | no | Controls explicit local-network opt-ins. Defaults to `{ enable = false; darwinAllowedTargets = [ ]; }`. On Darwin, `enable = true` allows only listed `darwinAllowedTargets` such as `"127.0.0.1:3000"`, `"[::1]:3000"`, or `"10.254.254.1:*"`. On Linux/NixOS, sandbox-local loopback already works while host-local services remain blocked. |
+| `localNetworkAccess` | no | Controls explicit local-network opt-ins. Defaults to `{ enable = false; darwinAllowedTargets = [ ]; }`. On Darwin, `enable = true` allows only listed localhost-style `darwinAllowedTargets` such as `"localhost:3000"`, `"127.0.0.1:3000"`, or `"[::1]:3000"`. On Linux/NixOS, sandbox-local loopback already works while host-local services remain blocked. |
 
 Paths declared in `rwDirs` / `rwFiles` / `roDirs` / `roFiles` must exist on the host before launch — the sandbox exits with a clear error if any are missing.
 
@@ -186,14 +186,14 @@ For local client/server integration tests:
 localNetworkAccess = {
   enable = true;
   darwinAllowedTargets = [
+    "localhost:3000"
     "127.0.0.1:3000"
     "[::1]:3000"
-    "10.254.254.1:*"
   ];
 };
 ```
 
-On Darwin, each `darwinAllowedTargets` entry is emitted as a Seatbelt `remote ip` target. Use bracketed IPv6 syntax, e.g. `"[::1]:3000"`. Keep the list as narrow as possible; broad entries can expose host-local services.
+On Darwin, each `darwinAllowedTargets` entry is emitted as a Seatbelt `remote ip` localhost target. `sandbox-exec` cannot safely allowlist arbitrary VM/LAN IPs such as `"10.254.254.1:*"`; use `localhost:<port>` where possible. `127.0.0.1:<port>` and bracketed `[::1]:<port>` are accepted for compatibility and emitted as `localhost:<port>`. Keep the list as narrow as possible; broad entries can expose host-local services.
 
 Blocked requests are logged to `/tmp/sandbox-proxy.log`. See [Git](#git) for limitations on SSH-based remotes.
 
@@ -412,7 +412,7 @@ If the agent does something it shouldn't — runs a bad prompt, processes a mali
 - It can't read your SSH keys, browser sessions, password manager, other projects' source code, or anything else in your home directory outside the paths you explicitly expose.
 - It can't delete or modify files outside the project directory and your declared `rwDirs` / `rwFiles`.
 - It can't reach the internet outside the domains you allow (when `allowedDomains` is set).
-- It can't talk to local services on your laptop — databases, dev servers, the SSH agent, other terminal windows, etc. — unless you explicitly allow a Darwin IP target with `localNetworkAccess`.
+- It can't talk to local services on your laptop — databases, dev servers, the SSH agent, other terminal windows, etc. — unless you explicitly allow a Darwin localhost target with `localNetworkAccess`.
 - It can only run the tools you list in `allowedPackages`.
 - It can't see your other running programs, read environment variables they have set, or interfere with other terminals you have open.
 

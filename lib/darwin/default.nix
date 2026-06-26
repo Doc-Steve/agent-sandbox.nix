@@ -41,7 +41,7 @@
     Network:
       (allow network*) — open internet in unrestricted mode, narrowed by
       explicit denies for loopback and AF_UNIX egress. localNetworkAccess can
-      append allowlist rules for specific Darwin local IP targets.
+      append allowlist rules for specific Darwin localhost targets.
 
     Device nodes & TTY:
       /dev/null, /dev/urandom, /dev/random, /dev/zero for reads.

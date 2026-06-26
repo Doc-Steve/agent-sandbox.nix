@@ -130,6 +130,14 @@ let
         exit 1
       fi
     '';
+  darwinLocalNetworkTargetPattern = "(localhost|127[.]0[.]0[.]1|[[]::1[]]):([0-9]+|[*])";
+  normalizeDarwinLocalNetworkTarget =
+    target:
+    let
+      match = builtins.match darwinLocalNetworkTargetPattern target;
+      port = builtins.elemAt match 1;
+    in
+    "localhost:${port}";
   validateLocalNetworkAccess =
     localNetworkAccess:
     if !(builtins.isAttrs localNetworkAccess) then
@@ -140,15 +148,13 @@ let
           enable = localNetworkAccess.enable or false;
           darwinAllowedTargets = localNetworkAccess.darwinAllowedTargets or [ ];
         };
-        # Keep Darwin seatbelt target strings non-executable and scoped to a
-        # host:port shape. IPv6 must be bracketed, e.g. "[::1]:3000". The host
-        # cannot be a wildcard; only the port may use '*', as in
-        # "127.0.0.1:*". This prevents profile injection and avoids
-        # accidentally re-opening broad outbound access in filtered mode.
-        targetPattern = "([-A-Za-z0-9_.]+|[[][0-9A-Fa-f:]+[]]):([0-9]+|[*])";
+        # macOS Seatbelt rejects arbitrary hosts in (remote ip ...): the host
+        # must be "localhost" or "*". localNetworkAccess is intentionally
+        # local-only, so accept localhost plus the documented loopback aliases
+        # and emit them as localhost in the Darwin profile.
         invalidTargets = builtins.filter (
           target:
-          !(builtins.isString target) || builtins.match targetPattern target == null
+          !(builtins.isString target) || builtins.match darwinLocalNetworkTargetPattern target == null
         ) normalized.darwinAllowedTargets;
       in
       if !(builtins.isBool normalized.enable) then
@@ -158,7 +164,7 @@ let
       else if !normalized.enable && normalized.darwinAllowedTargets != [ ] then
         builtins.throw "${errorPrefix} localNetworkAccess.darwinAllowedTargets requires localNetworkAccess.enable = true"
       else if invalidTargets != [ ] then
-        builtins.throw "${errorPrefix} localNetworkAccess.darwinAllowedTargets contains invalid target(s): ${builtins.toJSON invalidTargets}"
+        builtins.throw "${errorPrefix} Darwin sandbox-exec only supports localhost-style localNetworkAccess targets. Use localhost:<port>, 127.0.0.1:<port>, or [::1]:<port>; non-loopback IPs such as VM/LAN addresses cannot be allowlisted safely. Invalid target(s): ${builtins.toJSON invalidTargets}"
       else
         normalized;
   assertNoLegacyArgs =
@@ -206,5 +212,6 @@ in
   errorPrefix = errorPrefix;
   assertNoLegacyArgs = assertNoLegacyArgs;
   validateLocalNetworkAccess = validateLocalNetworkAccess;
+  normalizeDarwinLocalNetworkTarget = normalizeDarwinLocalNetworkTarget;
   assertBindsExistBashStr = assertBindsExistBashStr;
 }

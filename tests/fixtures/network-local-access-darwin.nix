@@ -10,6 +10,6 @@ in sandbox.mkSandbox {
   allowedPackages = [ pkgs.coreutils pkgs.curl ];
   localNetworkAccess = {
     enable = true;
-    darwinAllowedTargets = [ "127.0.0.1:18934" ];
+    darwinAllowedTargets = [ "localhost:18934" ];
   };
 }
