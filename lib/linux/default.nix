@@ -82,6 +82,10 @@
   roFiles ? [ ],
   env ? { },
   allowedDomains ? null,
+  localNetworkAccess ? {
+    enable = false;
+    darwinAllowedTargets = [ ];
+  },
   # Internal: maps "host" → "addr:port" so the proxy dials the local address
   # for those hosts instead of resolving the original. Used by the test
   # harness to point fake domains at a local httpbin. Not part of the
@@ -161,6 +165,8 @@ let
   extraEnvStr = builtins.concatStringsSep " " (
     map (name: "--setenv ${name} ${builtins.toJSON env.${name}}") (builtins.attrNames env)
   );
+
+  validatedLocalNetworkAccess = shared.validateLocalNetworkAccess localNetworkAccess;
 
   conditionalNetworkingParams = import ./networking.nix {
     pkgs = pkgs;
@@ -276,8 +282,9 @@ builtins.seq
     stateDirs = stateDirs;
     stateFiles = stateFiles;
   })
-  (
-    pkgs.writeTextFile {
+  (builtins.seq
+    validatedLocalNetworkAccess
+    (pkgs.writeTextFile {
       name = outName;
       executable = true;
       destination = "/bin/${outName}";
@@ -350,5 +357,5 @@ builtins.seq
             ${nixDaemonSocketBwrapStr} \
             ${preEntryScript} ${pkg}/bin/${binName} "$@"
         '';
-    }
+    })
   )

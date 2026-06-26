@@ -130,6 +130,37 @@ let
         exit 1
       fi
     '';
+  validateLocalNetworkAccess =
+    localNetworkAccess:
+    if !(builtins.isAttrs localNetworkAccess) then
+      builtins.throw "${errorPrefix} localNetworkAccess must be an attrset with 'enable' and 'darwinAllowedTargets'"
+    else
+      let
+        normalized = {
+          enable = localNetworkAccess.enable or false;
+          darwinAllowedTargets = localNetworkAccess.darwinAllowedTargets or [ ];
+        };
+        # Keep Darwin seatbelt target strings non-executable and scoped to a
+        # host:port shape. IPv6 must be bracketed, e.g. "[::1]:3000". The host
+        # cannot be a wildcard; only the port may use '*', as in
+        # "127.0.0.1:*". This prevents profile injection and avoids
+        # accidentally re-opening broad outbound access in filtered mode.
+        targetPattern = "([-A-Za-z0-9_.]+|[[][0-9A-Fa-f:]+[]]):([0-9]+|[*])";
+        invalidTargets = builtins.filter (
+          target:
+          !(builtins.isString target) || builtins.match targetPattern target == null
+        ) normalized.darwinAllowedTargets;
+      in
+      if !(builtins.isBool normalized.enable) then
+        builtins.throw "${errorPrefix} localNetworkAccess.enable must be a boolean"
+      else if !(builtins.isList normalized.darwinAllowedTargets) then
+        builtins.throw "${errorPrefix} localNetworkAccess.darwinAllowedTargets must be a list of strings"
+      else if !normalized.enable && normalized.darwinAllowedTargets != [ ] then
+        builtins.throw "${errorPrefix} localNetworkAccess.darwinAllowedTargets requires localNetworkAccess.enable = true"
+      else if invalidTargets != [ ] then
+        builtins.throw "${errorPrefix} localNetworkAccess.darwinAllowedTargets contains invalid target(s): ${builtins.toJSON invalidTargets}"
+      else
+        normalized;
   assertNoLegacyArgs =
     {
       restrictNetwork,
@@ -174,5 +205,6 @@ in
   warnPrefix = warnPrefix;
   errorPrefix = errorPrefix;
   assertNoLegacyArgs = assertNoLegacyArgs;
+  validateLocalNetworkAccess = validateLocalNetworkAccess;
   assertBindsExistBashStr = assertBindsExistBashStr;
 }

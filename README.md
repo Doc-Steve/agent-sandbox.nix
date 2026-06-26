@@ -13,7 +13,7 @@ Tested with Claude's frontier models — see [Security](#security) for the threa
 - **Project directory** — read/write access to the directory you launch the agent from.
 - **Declared state** — read/write access to anything you list in `rwDirs` / `rwFiles`, or read-only access via `roDirs` / `roFiles`.
 - **Allowed packages** — the binaries you list in `allowedPackages` are on the agent's PATH (plus `bash` and `cacert`).
-- **Network** — unrestricted by default. Set `allowedDomains` to limit the agent to specific domains (and, optionally, specific HTTP methods).
+- **Network** — unrestricted internet by default, with host-local services blocked. Set `allowedDomains` to limit internet domains, and use `localNetworkAccess` for explicit Darwin local-target opt-ins.
 - **Environment** — only variables you pass via `env` reach the agent; the host environment is otherwise cleared.
 - **Git** — the repo's `.git` directory is exposed, including when it sits outside the project tree (worktrees).
 - **Nix** — disabled by default. Optionally allow the agent to run nix commands.
@@ -72,7 +72,7 @@ A few arguments were renamed, and `restrictNetwork` was removed. If you use an o
 
 Network access is now controlled by `allowedDomains` on its own: leave it unset for open internet, list the domains you want to allow, or use `[ ]` to block everything.
 
-**If you relied on host loopback reachability:** previously, leaving `restrictNetwork` unset let the agent reach host-local services (Ollama, a local database, a local MCP server, etc.). That no longer works — host loopback is now blocked unconditionally on both platforms. The recommended workaround is to run the service inside the sandbox instead. If you have a use case that requires reaching a specific host-local service, please open an issue.
+**If you relied on host loopback reachability:** previously, leaving `restrictNetwork` unset let the agent reach host-local services (Ollama, a local database, a local MCP server, etc.). That no longer works by default — host loopback is blocked unless you explicitly opt into a Darwin local target with `localNetworkAccess`. On Linux/NixOS, run the service inside the sandbox and connect over sandbox-local loopback.
 
 </details>
 
@@ -123,6 +123,7 @@ If you want to keep the original command name as the alias, change the `outName`
 | `allowNix` | no | If `true`, expose the host's `nix-daemon` socket and the full Nix store so the agent can run `nix build`, `nix run`, `nix develop`, etc. `pkgs.nix` is added to PATH automatically. Defaults to `false`. See [Using Nix inside the sandbox](#using-nix-inside-the-sandbox). |
 | `env` | no | Additional environment variables as an attrset |
 | `allowedDomains` | no | Limits which domains the sandbox can reach. Leave unset for open internet. Accepts a list of domains (all methods allowed), or an attrset mapping each domain to `"*"` or a list of HTTP methods. `[ ]` blocks all internet access. |
+| `localNetworkAccess` | no | Controls explicit local-network opt-ins. Defaults to `{ enable = false; darwinAllowedTargets = [ ]; }`. On Darwin, `enable = true` allows only listed `darwinAllowedTargets` such as `"127.0.0.1:3000"`, `"[::1]:3000"`, or `"10.254.254.1:*"`. On Linux/NixOS, sandbox-local loopback already works while host-local services remain blocked. |
 
 Paths declared in `rwDirs` / `rwFiles` / `roDirs` / `roFiles` must exist on the host before launch — the sandbox exits with a clear error if any are missing.
 
@@ -163,9 +164,9 @@ mkSandbox {
 
 ### Network restrictions
 
-Host loopback services — databases, dev servers, SSH agent, Docker socket, etc. — are never reachable from inside the sandbox, regardless of how `allowedDomains` is set. If you need the agent to reach a specific host-local service, please open an issue describing the use case.
+`allowedDomains` controls internet/domain access. It does not allow host-local targets.
 
-By default, internet access is unrestricted. To restrict it, set `allowedDomains` — the sandbox can then only reach the domains you list. Leave it unset for open internet, or set it to `[ ]` to block all internet access.
+By default, internet access is unrestricted and host-local services — databases, dev servers, SSH agent, Docker socket, etc. — are blocked. To restrict internet access, set `allowedDomains` — the sandbox can then only reach the domains you list. Leave it unset for open internet, or set it to `[ ]` to block all internet access.
 
 `allowedDomains` accepts two formats:
 
@@ -175,6 +176,24 @@ By default, internet access is unrestricted. To restrict it, set `allowedDomains
 Domains are suffix-matched, so `"anthropic.com"` will capture all `*.anthropic.com` subdomains.
 
 When `allowedDomains` is set, all HTTP/HTTPS traffic is routed through a filtering proxy that inspects requests by domain and HTTP method. The sandbox cannot bypass the proxy and DNS resolution is blocked. WebSocket connections are not permitted.
+
+For local client/server integration tests:
+
+- Linux/NixOS uses a separate network namespace. A server and client started inside the same sandbox can use sandbox-local loopback, while host-local services remain blocked.
+- Darwin's `sandbox-exec` has no network namespace. Local access is therefore denied by default, and must be allowlisted target-by-target with `localNetworkAccess`.
+
+```nix
+localNetworkAccess = {
+  enable = true;
+  darwinAllowedTargets = [
+    "127.0.0.1:3000"
+    "[::1]:3000"
+    "10.254.254.1:*"
+  ];
+};
+```
+
+On Darwin, each `darwinAllowedTargets` entry is emitted as a Seatbelt `remote ip` target. Use bracketed IPv6 syntax, e.g. `"[::1]:3000"`. Keep the list as narrow as possible; broad entries can expose host-local services.
 
 Blocked requests are logged to `/tmp/sandbox-proxy.log`. See [Git](#git) for limitations on SSH-based remotes.
 
@@ -393,7 +412,7 @@ If the agent does something it shouldn't — runs a bad prompt, processes a mali
 - It can't read your SSH keys, browser sessions, password manager, other projects' source code, or anything else in your home directory outside the paths you explicitly expose.
 - It can't delete or modify files outside the project directory and your declared `rwDirs` / `rwFiles`.
 - It can't reach the internet outside the domains you allow (when `allowedDomains` is set).
-- It can't talk to local services on your laptop — databases, dev servers, the SSH agent, other terminal windows, etc.
+- It can't talk to local services on your laptop — databases, dev servers, the SSH agent, other terminal windows, etc. — unless you explicitly allow a Darwin IP target with `localNetworkAccess`.
 - It can only run the tools you list in `allowedPackages`.
 - It can't see your other running programs, read environment variables they have set, or interfere with other terminals you have open.
 
@@ -414,7 +433,7 @@ The sandbox is an **isolation** boundary, not an **anonymity** boundary, and not
 
 ### Linux vs macOS
 
-Both platforms enforce the same protections — everything in the list above holds equally on Linux and macOS. The mechanisms differ (bubblewrap and pasta on Linux, `sandbox-exec` on macOS), and the specific bits of information an agent can learn about your machine vary a little, but the practical end state is the same on both.
+Both platforms enforce the same default protections. The mechanisms differ: Linux uses bubblewrap plus pasta network namespaces, so sandbox-local loopback can work without exposing host loopback. macOS uses `sandbox-exec`, which cannot distinguish sandbox-local localhost from host localhost, so local IP targets stay blocked unless explicitly allowlisted with `localNetworkAccess`.
 
 ### Is this the right tool for me?
 
