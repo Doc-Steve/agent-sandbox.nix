@@ -20,15 +20,24 @@ let
   localNetworkAccessDnatRulesStr = builtins.concatStringsSep "\n" (
     map (port: ''$NFT add rule ip sandbox_nat output ip daddr 127.0.0.1 ${mkTcpPortMatch port} dnat to ${pastaGatewayIp}'') localNetworkAccessPorts
   );
+  localNetworkAccessSnatRulesStr = builtins.concatStringsSep "\n" (
+    map (port: ''$NFT add rule ip sandbox_nat postrouting ip saddr 127.0.0.1 ip daddr ${pastaGatewayIp} ${mkTcpPortMatch port} masquerade'') localNetworkAccessPorts
+  );
   localNetworkAccessNatSetupStr =
     if localNetworkAccessPorts == [ ] then
       ""
     else
       # bash
       ''
+        # DNAT from sandbox localhost needs route_localnet, and the translated
+        # flow needs SNAT so pasta sees it as coming from the namespace address.
+        echo 1 > /proc/sys/net/ipv4/conf/all/route_localnet
+        echo 1 > /proc/sys/net/ipv4/conf/default/route_localnet
         $NFT add table ip sandbox_nat
         $NFT add chain ip sandbox_nat output '{ type nat hook output priority -100 ; policy accept ; }'
+        $NFT add chain ip sandbox_nat postrouting '{ type nat hook postrouting priority 100 ; policy accept ; }'
         ${localNetworkAccessDnatRulesStr}
+        ${localNetworkAccessSnatRulesStr}
       '';
   # Runs inside pasta's namespace (before bwrap) in open (allowedDomains=null)
   # mode. Keeps the default route so the sandbox can reach the internet, but

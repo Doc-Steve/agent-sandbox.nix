@@ -8,7 +8,7 @@ in sandbox.mkSandbox {
   pkg = pkgs.bashInteractive;
   binName = "bash";
   outName = "sandboxed-bash-local-access";
-  allowedPackages = [ pkgs.coreutils pkgs.curl ];
+  allowedPackages = [ pkgs.coreutils pkgs.curl pkgs.python3Minimal ];
   localNetworkAccess = {
     enable = true;
     allowedTargets = [ target ];
