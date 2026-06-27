@@ -41,7 +41,7 @@
     Network:
       (allow network*) — open internet in unrestricted mode, narrowed by
       explicit denies for loopback and AF_UNIX egress. localNetworkAccess can
-      append allowlist rules for specific Darwin localhost targets.
+      append allowlist rules for specific host-loopback targets.
 
     Device nodes & TTY:
       /dev/null, /dev/urandom, /dev/random, /dev/zero for reads.
@@ -178,7 +178,7 @@
   allowedDomains ? null,
   localNetworkAccess ? {
     enable = false;
-    darwinAllowedTargets = [ ];
+    allowedTargets = [ ];
   },
   # Internal: maps "host" → "addr:port" so the proxy dials the local address
   # for those hosts instead of resolving the original. Used by the test

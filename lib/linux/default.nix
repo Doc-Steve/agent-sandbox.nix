@@ -84,7 +84,7 @@
   allowedDomains ? null,
   localNetworkAccess ? {
     enable = false;
-    darwinAllowedTargets = [ ];
+    allowedTargets = [ ];
   },
   # Internal: maps "host" → "addr:port" so the proxy dials the local address
   # for those hosts instead of resolving the original. Used by the test
@@ -173,6 +173,7 @@ let
     shared = shared;
     restrictNetwork = allowedDomains != null;
     allowedDomains = if allowedDomains != null then allowedDomains else [ ];
+    localNetworkAccess = validatedLocalNetworkAccess;
     _proxyRedirects = _proxyRedirects;
   };
 

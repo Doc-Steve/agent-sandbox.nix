@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Test: localNetworkAccess allows only explicitly configured host-loopback
-# targets while preserving the default block for neighboring localhost ports.
+# targets on Linux while preserving the default block for neighboring ports.
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
@@ -18,7 +18,7 @@ DENIED_PORT=18935
 
 TESTDIR_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)/.tmp-test"
 mkdir -p "$TESTDIR_ROOT"
-TESTDIR=$(mktemp -d "$TESTDIR_ROOT/local-network-access-darwin.XXXXXX")
+TESTDIR=$(mktemp -d "$TESTDIR_ROOT/local-network-access-linux.XXXXXX")
 
 SERVER_PID=""
 cleanup() {
@@ -82,15 +82,18 @@ if [ "$_ready" -ne 1 ]; then
 	exit 1
 fi
 
-echo "=== Explicit localNetworkAccess allowlist (Darwin) ==="
+echo "=== Explicit localNetworkAccess allowlist (Linux) ==="
 echo "ALLOWED_PORT=$ALLOWED_PORT DENIED_PORT=$DENIED_PORT"
 echo
 
-expect_ok "can reach allowlisted host-loopback target" \
-	"curl -sf --noproxy '*' --max-time 3 http://127.0.0.1:$ALLOWED_PORT/"
+expect_ok "can reach allowlisted host-loopback target through localhost" \
+	"curl -sf --noproxy '*' --max-time 3 http://localhost:$ALLOWED_PORT/"
 
-expect_fail "cannot reach non-allowlisted host-loopback target" \
-	"curl -sf --noproxy '*' --max-time 3 http://127.0.0.1:$DENIED_PORT/"
+expect_fail "cannot reach non-allowlisted host-loopback target through localhost" \
+	"curl -sf --noproxy '*' --max-time 3 http://localhost:$DENIED_PORT/"
+
+expect_fail "cannot reach non-allowlisted host-loopback target through pasta gateway" \
+	"curl -sf --noproxy '*' --max-time 3 http://10.0.2.2:$DENIED_PORT/"
 
 print_results
 exit_status

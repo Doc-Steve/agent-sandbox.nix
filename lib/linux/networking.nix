@@ -3,6 +3,7 @@
   shared,
   restrictNetwork,
   allowedDomains,
+  localNetworkAccess,
   _proxyRedirects ? { },
 }:
 let
@@ -10,12 +11,31 @@ let
   mkProxyStartupBashStr = shared.mkProxyStartupBashStr;
   pastaGatewayIp = "10.0.2.2";
   pastaNamespaceIp = "10.0.2.1";
+  localNetworkAccessPorts =
+    if localNetworkAccess.enable then map shared.localNetworkTargetPort localNetworkAccess.allowedTargets else [ ];
+  mkTcpPortMatch = port: if port == "*" then "tcp" else "tcp dport ${port}";
+  localNetworkAccessAcceptRulesStr = builtins.concatStringsSep "\n" (
+    map (port: ''$NFT add rule ip sandbox_filter output ip daddr ${pastaGatewayIp} ${mkTcpPortMatch port} accept'') localNetworkAccessPorts
+  );
+  localNetworkAccessDnatRulesStr = builtins.concatStringsSep "\n" (
+    map (port: ''$NFT add rule ip sandbox_nat output ip daddr 127.0.0.1 ${mkTcpPortMatch port} dnat to ${pastaGatewayIp}'') localNetworkAccessPorts
+  );
+  localNetworkAccessNatSetupStr =
+    if localNetworkAccessPorts == [ ] then
+      ""
+    else
+      # bash
+      ''
+        $NFT add table ip sandbox_nat
+        $NFT add chain ip sandbox_nat output '{ type nat hook output priority -100 ; policy accept ; }'
+        ${localNetworkAccessDnatRulesStr}
+      '';
   # Runs inside pasta's namespace (before bwrap) in open (allowedDomains=null)
   # mode. Keeps the default route so the sandbox can reach the internet, but
-  # installs a single nftables drop rule for the pasta gateway IP. pasta
-  # forwards 10.0.2.2:<port> → 127.0.0.1:<port> on the host, so dropping
-  # all traffic to that address blocks host loopback services (databases,
-  # dev servers, ssh-agent, etc.) without touching internet traffic (whose
+  # drops the pasta gateway IP except for explicit localNetworkAccess ports.
+  # pasta forwards 10.0.2.2:<port> → 127.0.0.1:<port> on the host, so dropping
+  # traffic to that address blocks host loopback services (databases, dev
+  # servers, ssh-agent, etc.) without touching internet traffic (whose
   # destination IPs are real server addresses, not 10.0.2.2).
   openModeRouteRestrictScript =
     pkgs.writeScript "sandbox-open-route-restrict"
@@ -26,6 +46,8 @@ let
         NFT="${pkgs.nftables}/bin/nft"
         $NFT add table ip sandbox_filter
         $NFT add chain ip sandbox_filter output '{ type filter hook output priority 0 ; policy accept ; }'
+        ${localNetworkAccessNatSetupStr}
+        ${localNetworkAccessAcceptRulesStr}
         $NFT add rule ip sandbox_filter output ip daddr ${pastaGatewayIp} drop
         exec "$@"
       '';
@@ -50,7 +72,9 @@ let
         $NFT add table ip sandbox_filter
         $NFT add chain ip sandbox_filter output '{ type filter hook output priority 0 ; policy drop ; }'
         $NFT add rule ip sandbox_filter output oif lo accept
+        ${localNetworkAccessNatSetupStr}
         $NFT add rule ip sandbox_filter output ip daddr ${pastaGatewayIp} tcp dport "$SANDBOX_PROXY_PORT" accept
+        ${localNetworkAccessAcceptRulesStr}
         exec "$@"
       '';
 in

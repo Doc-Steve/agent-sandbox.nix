@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# localNetworkAccess loopback aliases must be emitted as sandbox-exec-compatible
-# localhost targets in the Darwin Seatbelt profile.
+# localNetworkAccess.allowedTargets loopback aliases must be emitted as
+# sandbox-exec-compatible localhost targets in the Darwin Seatbelt profile.
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
@@ -14,7 +14,7 @@ sandbox_profile_for_wrapper() {
 expect_normalized_target() {
 	local desc="$1" target="$2" expected="$3" unexpected="$4"
 	local out profile
-	if ! out=$(nix-build --no-out-link --argstr target "$target" "$SCRIPT_DIR/../fixtures/network-local-access-darwin.nix" 2>&1); then
+	if ! out=$(nix-build --no-out-link --argstr target "$target" "$SCRIPT_DIR/../fixtures/network-local-access.nix" 2>&1); then
 		echo "FAIL: $desc (build failed)"
 		printf '%s\n' "$out" | sed 's/^/    /'
 		FAIL=$((FAIL + 1))

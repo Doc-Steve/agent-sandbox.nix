@@ -130,41 +130,44 @@ let
         exit 1
       fi
     '';
-  darwinLocalNetworkTargetPattern = "(localhost|127[.]0[.]0[.]1|[[]::1[]]):([0-9]+|[*])";
-  normalizeDarwinLocalNetworkTarget =
+  localNetworkTargetPattern = "(localhost|127[.]0[.]0[.]1|[[]::1[]]):([0-9]+|[*])";
+  localNetworkTargetPort =
     target:
     let
-      match = builtins.match darwinLocalNetworkTargetPattern target;
-      port = builtins.elemAt match 1;
+      match = builtins.match localNetworkTargetPattern target;
     in
-    "localhost:${port}";
+    builtins.elemAt match 1;
+  normalizeLocalNetworkTarget = target: "localhost:${localNetworkTargetPort target}";
   validateLocalNetworkAccess =
     localNetworkAccess:
     if !(builtins.isAttrs localNetworkAccess) then
-      builtins.throw "${errorPrefix} localNetworkAccess must be an attrset with 'enable' and 'darwinAllowedTargets'"
+      builtins.throw "${errorPrefix} localNetworkAccess must be an attrset with 'enable' and 'allowedTargets'"
     else
       let
+        enable = localNetworkAccess.enable or false;
+        allowedTargets = localNetworkAccess.allowedTargets or [ ];
         normalized = {
-          enable = localNetworkAccess.enable or false;
-          darwinAllowedTargets = localNetworkAccess.darwinAllowedTargets or [ ];
+          enable = enable;
+          allowedTargets = allowedTargets;
         };
         # macOS Seatbelt rejects arbitrary hosts in (remote ip ...): the host
         # must be "localhost" or "*". localNetworkAccess is intentionally
         # local-only, so accept localhost plus the documented loopback aliases
-        # and emit them as localhost in the Darwin profile.
+        # and emit them as localhost in the Darwin profile. Linux uses the same
+        # target shape and maps the port to the pasta host-loopback gateway.
         invalidTargets = builtins.filter (
           target:
-          !(builtins.isString target) || builtins.match darwinLocalNetworkTargetPattern target == null
-        ) normalized.darwinAllowedTargets;
+          !(builtins.isString target) || builtins.match localNetworkTargetPattern target == null
+        ) allowedTargets;
       in
-      if !(builtins.isBool normalized.enable) then
+      if !(builtins.isBool enable) then
         builtins.throw "${errorPrefix} localNetworkAccess.enable must be a boolean"
-      else if !(builtins.isList normalized.darwinAllowedTargets) then
-        builtins.throw "${errorPrefix} localNetworkAccess.darwinAllowedTargets must be a list of strings"
-      else if !normalized.enable && normalized.darwinAllowedTargets != [ ] then
-        builtins.throw "${errorPrefix} localNetworkAccess.darwinAllowedTargets requires localNetworkAccess.enable = true"
+      else if !(builtins.isList allowedTargets) then
+        builtins.throw "${errorPrefix} localNetworkAccess.allowedTargets must be a list of strings"
+      else if !enable && allowedTargets != [ ] then
+        builtins.throw "${errorPrefix} localNetworkAccess targets require localNetworkAccess.enable = true"
       else if invalidTargets != [ ] then
-        builtins.throw "${errorPrefix} Darwin sandbox-exec only supports localhost-style localNetworkAccess targets. Use localhost:<port>, 127.0.0.1:<port>, or [::1]:<port>; non-loopback IPs such as VM/LAN addresses cannot be allowlisted safely. Invalid target(s): ${builtins.toJSON invalidTargets}"
+        builtins.throw "${errorPrefix} localNetworkAccess only supports localhost-style targets. Use localhost:<port>, 127.0.0.1:<port>, or [::1]:<port>; non-loopback IPs such as VM/LAN addresses cannot be allowlisted safely. Invalid target(s): ${builtins.toJSON invalidTargets}"
       else
         normalized;
   assertNoLegacyArgs =
@@ -212,6 +215,7 @@ in
   errorPrefix = errorPrefix;
   assertNoLegacyArgs = assertNoLegacyArgs;
   validateLocalNetworkAccess = validateLocalNetworkAccess;
-  normalizeDarwinLocalNetworkTarget = normalizeDarwinLocalNetworkTarget;
+  localNetworkTargetPort = localNetworkTargetPort;
+  normalizeLocalNetworkTarget = normalizeLocalNetworkTarget;
   assertBindsExistBashStr = assertBindsExistBashStr;
 }

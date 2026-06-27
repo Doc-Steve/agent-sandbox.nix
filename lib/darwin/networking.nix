@@ -12,8 +12,8 @@ let
     if localNetworkAccess.enable then
       builtins.concatStringsSep "\n" (
         map (
-          target: ''        (allow network-outbound (remote ip "${shared.normalizeDarwinLocalNetworkTarget target}"))''
-        ) localNetworkAccess.darwinAllowedTargets
+          target: ''        (allow network-outbound (remote ip "${shared.normalizeLocalNetworkTarget target}"))''
+        ) localNetworkAccess.allowedTargets
       )
     else
       "";
