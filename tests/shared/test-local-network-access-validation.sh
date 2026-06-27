@@ -1,61 +1,31 @@
 #!/usr/bin/env bash
-# localNetworkAccess.darwinAllowedTargets must fail at eval time for values
-# that macOS Seatbelt cannot parse. sandbox-exec only accepts localhost-style
-# host selectors in (remote ip ...); arbitrary LAN/VM IPs otherwise fail at
-# runtime with "host must be * or localhost in network address".
+# localNetworkAccess.darwinAllowedTargets must fail before sandbox-exec for
+# values that macOS Seatbelt cannot parse. sandbox-exec only accepts
+# localhost-style host selectors in (remote ip ...); arbitrary LAN/VM IPs
+# otherwise fail at runtime with "host must be * or localhost in network address".
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 source "$SCRIPT_DIR/../lib.sh"
 
-REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-
-eval_with_target() {
+build_with_target() {
 	local target="$1"
-	nix-instantiate --eval -I nixpkgs=flake:nixpkgs -E "
-    let
-      pkgs = import <nixpkgs> { };
-      sandbox = import ${REPO_ROOT}/default.nix { inherit pkgs; };
-      wrapper = sandbox.mkSandbox {
-        pkg = pkgs.bashInteractive;
-        binName = \"bash\";
-        outName = \"local-network-validation-test\";
-        allowedPackages = [ pkgs.coreutils ];
-        localNetworkAccess = {
-          enable = true;
-          darwinAllowedTargets = [ \"${target}\" ];
-        };
-      };
-    in builtins.seq wrapper \"ok\"
-  " 2>&1
+	nix-build --no-out-link --argstr target "$target" "$SCRIPT_DIR/../fixtures/network-local-access-darwin.nix" 2>&1
 }
 
-render_darwin_rules_with_target() {
-	local target="$1"
-	nix-instantiate --eval --raw -I nixpkgs=flake:nixpkgs -E "
-    let
-      pkgs = import <nixpkgs> { };
-      shared = import ${REPO_ROOT}/lib/shared.nix { inherit pkgs; };
-      networking = import ${REPO_ROOT}/lib/darwin/networking.nix {
-        inherit pkgs shared;
-        allowedDomains = null;
-        localNetworkAccess = shared.validateLocalNetworkAccess {
-          enable = true;
-          darwinAllowedTargets = [ \"${target}\" ];
-        };
-      };
-    in networking.networkSeatbeltRulesStr
-  " 2>&1
+sandbox_profile_for_wrapper() {
+	local wrapper="$1/bin/sandboxed-bash-local-access"
+	grep -Eo '/nix/store/[^" ]+-sandboxed-bash-local-access-sandbox\.sb' "$wrapper" | head -n 1
 }
 
 expect_ok_target() {
 	local desc="$1" target="$2"
 	local out
-	if out=$(eval_with_target "$target"); then
+	if out=$(build_with_target "$target"); then
 		echo "PASS: $desc"
 		PASS=$((PASS + 1))
 	else
-		echo "FAIL: $desc (eval failed)"
+		echo "FAIL: $desc (build failed)"
 		printf '%s\n' "$out" | sed 's/^/    /'
 		FAIL=$((FAIL + 1))
 	fi
@@ -64,8 +34,8 @@ expect_ok_target() {
 expect_invalid_target() {
 	local desc="$1" target="$2" needle="$3"
 	local out
-	if out=$(eval_with_target "$target"); then
-		echo "FAIL: $desc (eval succeeded; expected validation error)"
+	if out=$(build_with_target "$target"); then
+		echo "FAIL: $desc (build succeeded; expected validation error)"
 		FAIL=$((FAIL + 1))
 	elif printf '%s' "$out" | grep -qF "$needle"; then
 		echo "PASS: $desc"
@@ -79,18 +49,21 @@ expect_invalid_target() {
 
 expect_normalized_target() {
 	local desc="$1" target="$2" expected="$3" unexpected="$4"
-	local out
-	if ! out=$(render_darwin_rules_with_target "$target"); then
-		echo "FAIL: $desc (render failed)"
+	local out profile
+	if ! out=$(build_with_target "$target"); then
+		echo "FAIL: $desc (build failed)"
 		printf '%s\n' "$out" | sed 's/^/    /'
 		FAIL=$((FAIL + 1))
-	elif ! printf '%s' "$out" | grep -qF "$expected"; then
+	elif ! profile=$(sandbox_profile_for_wrapper "$out"); then
+		echo "FAIL: $desc (sandbox profile not found)"
+		FAIL=$((FAIL + 1))
+	elif ! grep -qF "$expected" "$profile"; then
 		echo "FAIL: $desc (missing expected rule: $expected)"
-		printf '%s\n' "$out" | sed 's/^/    /'
+		sed 's/^/    /' "$profile"
 		FAIL=$((FAIL + 1))
-	elif [ -n "$unexpected" ] && printf '%s' "$out" | grep -qF "$unexpected"; then
+	elif [ -n "$unexpected" ] && grep -qF "$unexpected" "$profile"; then
 		echo "FAIL: $desc (found unnormalized rule: $unexpected)"
-		printf '%s\n' "$out" | sed 's/^/    /'
+		sed 's/^/    /' "$profile"
 		FAIL=$((FAIL + 1))
 	else
 		echo "PASS: $desc"
