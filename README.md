@@ -180,11 +180,7 @@ Domains are suffix-matched, so `"anthropic.com"` will capture all `*.anthropic.c
 
 When `allowedDomains` is set, all HTTP/HTTPS traffic is routed through a filtering proxy that inspects requests by domain and HTTP method. The sandbox cannot bypass the proxy and DNS resolution is blocked. WebSocket connections are not permitted.
 
-For local client/server integration tests:
-
-- A server and client started inside the same sandbox can use sandbox-local loopback without `allowedLocalPorts`.
-- Host-local services stay blocked by default on both Linux/NixOS and Darwin.
-- Use `allowedLocalPorts` when the sandbox must reach trusted host-local TCP services.
+Use `allowedLocalPorts` when the sandbox must reach trusted host-local TCP services, which are still blocked even when `allowedDomains` is set.
 
 ```nix
 allowedLocalPorts = [ 3000 5432 ];
